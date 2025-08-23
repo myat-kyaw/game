@@ -48,6 +48,18 @@ const enemySpawns = [
 ];
 let enemies;
 
+// Collectible coins
+const coins = [
+  { x: 350, y: 352, collected: false },
+  { x: 600, y: 288, collected: false },
+  { x: 920, y: 320, collected: false },
+  { x: 1500, y: 352, collected: false }
+];
+
+let score = 0;
+let won = false;
+const goalX = (mapCols - 2) * tileSize;
+
 // Player entity
 const player = { x: 64, y: 416, w: 26, h: 32, vx: 0, vy: 0, onGround: false };
 
@@ -55,6 +67,9 @@ const player = { x: 64, y: 416, w: 26, h: 32, vx: 0, vy: 0, onGround: false };
 function reset() {
   enemies = enemySpawns.map(e => ({ x: e.x, y: e.y, w: 32, h: 32, vx: e.vx, vy: 0, alive: true }));
   player.x = 64; player.y = 416; player.vx = 0; player.vy = 0; player.onGround = false;
+  coins.forEach(c => c.collected = false);
+  score = 0;
+  won = false;
 }
 reset();
 
@@ -117,6 +132,9 @@ let cameraX = 0;
 
 // Game loop update
 function update(dt) {
+  if (keys.KeyR) reset();
+  if (won) return;
+
   player.vx = 0;
   if (keys.ArrowLeft) player.vx = -speed;
   if (keys.ArrowRight) player.vx = speed;
@@ -126,6 +144,13 @@ function update(dt) {
   }
 
   moveEntity(player, dt);
+
+  coins.forEach(c => {
+    if (!c.collected && rectsIntersect(player, { x: c.x, y: c.y, w: 16, h: 16 })) {
+      c.collected = true;
+      score += 10;
+    }
+  });
 
   enemies.forEach(enemy => {
     if (!enemy.alive) return;
@@ -139,11 +164,14 @@ function update(dt) {
       if (player.vy > 0 && player.y + player.h - enemy.y < enemy.h * 0.5) {
         enemy.alive = false;
         player.vy = -jump * 0.5;
+        score += 50;
       } else {
         reset();
       }
     }
   });
+
+  if (player.x > goalX) won = true;
 
   cameraX = Math.max(0, Math.min(player.x + player.w / 2 - canvas.width / 2, mapCols * tileSize - canvas.width));
 }
@@ -164,6 +192,21 @@ function draw() {
     }
   }
 
+  // Coins
+  coins.forEach(c => {
+    if (c.collected) return;
+    ctx.fillStyle = '#FFD700';
+    ctx.beginPath();
+    ctx.arc(c.x - cameraX + 8, c.y + 8, 8, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Goal flag
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(goalX - cameraX, tileSize * 4, 4, tileSize * 10);
+  ctx.fillStyle = '#0f0';
+  ctx.fillRect(goalX - cameraX, tileSize * 4, 20, 20);
+
   // Enemies
   enemies.forEach(enemy => {
     if (!enemy.alive) return;
@@ -181,6 +224,19 @@ function draw() {
   ctx.fillRect(px, py, player.w, player.h / 2);
   ctx.fillStyle = '#0000ff';
   ctx.fillRect(px, py + player.h / 2, player.w, player.h / 2);
+
+  // HUD
+  ctx.fillStyle = '#000';
+  ctx.font = '20px sans-serif';
+  ctx.fillText('Score: ' + score, 10, 20);
+
+  if (won) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff';
+    ctx.font = '48px sans-serif';
+    ctx.fillText('YOU WIN!', canvas.width / 2 - 120, canvas.height / 2);
+  }
 }
 
 // Animation loop
