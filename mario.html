@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Mini Mario</title>
+<style>
+    html, body { margin:0; height:100%; background:#5c94fc; overflow:hidden;}
+    canvas { display:block; margin:0 auto; background:#5c94fc;}
+</style>
+</head>
+<body>
+<canvas id="game" width="800" height="480"></canvas>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+const tileSize = 32;
+const mapCols = 100;
+const mapRows = 15;
+const gravity = 2000;
+const speed = 200;
+const jump = 650;
+
+// Level map (0 empty, 1 ground, 2 brick, 3 pipe)
+const map = Array.from({length: mapRows}, () => Array(mapCols).fill(0));
+for (let x = 0; x < mapCols; x++) map[mapRows - 1][x] = 1;
+function fillRect(x, y, w, h, type) {
+  for (let j = 0; j < h; j++)
+    for (let i = 0; i < w; i++)
+      map[y + j][x + i] = type;
+}
+
+// Some obstacles and platforms
+fillRect(10, 11, 5, 1, 2);
+fillRect(25, 10, 3, 1, 2);
+fillRect(35, 13, 2, 2, 3);
+fillRect(45, 12, 4, 1, 2);
+fillRect(60, 13, 2, 2, 3);
+fillRect(70, 11, 5, 1, 2);
+fillRect(85, 10, 3, 1, 2);
+fillRect(95, 13, 3, 2, 3);
+
+// Enemy spawn data
+const enemySpawns = [
+  { x: 500, y: 416, vx: -50 },
+  { x: 800, y: 416, vx: -50 },
+  { x: 1400, y: 416, vx: -50 }
+];
+let enemies;
+
+// Collectible coins
+const coins = [
+  { x: 350, y: 352, collected: false },
+  { x: 600, y: 288, collected: false },
+  { x: 920, y: 320, collected: false },
+  { x: 1500, y: 352, collected: false }
+];
+
+let score = 0;
+let won = false;
+const goalX = (mapCols - 2) * tileSize;
+
+// Player entity
+const player = { x: 64, y: 416, w: 26, h: 32, vx: 0, vy: 0, onGround: false };
+
+// Reset game state
+function reset() {
+  enemies = enemySpawns.map(e => ({ x: e.x, y: e.y, w: 32, h: 32, vx: e.vx, vy: 0, alive: true }));
+  player.x = 64; player.y = 416; player.vx = 0; player.vy = 0; player.onGround = false;
+  coins.forEach(c => c.collected = false);
+  score = 0;
+  won = false;
+}
+reset();
+
+// Collision helpers
+function solid(x, y) {
+  const tx = Math.floor(x / tileSize);
+  const ty = Math.floor(y / tileSize);
+  if (tx < 0 || tx >= mapCols) return true;
+  if (ty >= mapRows) return true;
+  if (ty < 0) return false;
+  return map[ty][tx];
+}
+
+function moveEntity(e, dt) {
+  e.vy += gravity * dt;
+  e.blockedLeft = e.blockedRight = e.blockedDown = e.blockedUp = false;
+
+  // Horizontal
+  let nx = e.x + e.vx * dt;
+  if (e.vx > 0) {
+    if (solid(nx + e.w, e.y) || solid(nx + e.w, e.y + e.h - 1)) {
+      nx = Math.floor((nx + e.w) / tileSize) * tileSize - e.w;
+      e.blockedRight = true; e.vx = 0;
+    }
+  } else if (e.vx < 0) {
+    if (solid(nx, e.y) || solid(nx, e.y + e.h - 1)) {
+      nx = Math.floor(nx / tileSize + 1) * tileSize;
+      e.blockedLeft = true; e.vx = 0;
+    }
+  }
+  e.x = nx;
+
+  // Vertical
+  let ny = e.y + e.vy * dt;
+  if (e.vy > 0) {
+    if (solid(e.x, ny + e.h) || solid(e.x + e.w - 1, ny + e.h)) {
+      ny = Math.floor((ny + e.h) / tileSize) * tileSize - e.h;
+      e.blockedDown = true; e.vy = 0; e.onGround = true;
+    } else e.onGround = false;
+  } else if (e.vy < 0) {
+    if (solid(e.x, ny) || solid(e.x + e.w - 1, ny)) {
+      ny = Math.floor(ny / tileSize + 1) * tileSize;
+      e.blockedUp = true; e.vy = 0;
+    }
+  }
+  e.y = ny;
+}
+
+function rectsIntersect(a, b) {
+  return !(a.x + a.w < b.x || a.x > b.x + b.w || a.y + a.h < b.y || a.y > b.y + b.h);
+}
+
+// Input
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.code] = true; if (["ArrowUp", "Space"].includes(e.code)) e.preventDefault(); });
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// Camera
+let cameraX = 0;
+
+// Game loop update
+function update(dt) {
+  if (keys.KeyR) reset();
+  if (won) return;
+
+  player.vx = 0;
+  if (keys.ArrowLeft) player.vx = -speed;
+  if (keys.ArrowRight) player.vx = speed;
+  if ((keys.Space || keys.ArrowUp) && player.onGround) {
+    player.vy = -jump;
+    player.onGround = false;
+  }
+
+  moveEntity(player, dt);
+
+  coins.forEach(c => {
+    if (!c.collected && rectsIntersect(player, { x: c.x, y: c.y, w: 16, h: 16 })) {
+      c.collected = true;
+      score += 10;
+    }
+  });
+
+  enemies.forEach(enemy => {
+    if (!enemy.alive) return;
+    moveEntity(enemy, dt);
+    if (enemy.blockedLeft || enemy.blockedRight) enemy.vx *= -1;
+  });
+
+  enemies.forEach(enemy => {
+    if (!enemy.alive) return;
+    if (rectsIntersect(player, enemy)) {
+      if (player.vy > 0 && player.y + player.h - enemy.y < enemy.h * 0.5) {
+        enemy.alive = false;
+        player.vy = -jump * 0.5;
+        score += 50;
+      } else {
+        reset();
+      }
+    }
+  });
+
+  if (player.x > goalX) won = true;
+
+  cameraX = Math.max(0, Math.min(player.x + player.w / 2 - canvas.width / 2, mapCols * tileSize - canvas.width));
+}
+
+// Rendering
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Tiles
+  for (let y = 0; y < mapRows; y++) {
+    for (let x = 0; x < mapCols; x++) {
+      const t = map[y][x];
+      if (!t) continue;
+      if (t === 1) ctx.fillStyle = '#8B4513';
+      else if (t === 2) ctx.fillStyle = '#B22222';
+      else ctx.fillStyle = '#228B22';
+      ctx.fillRect(x * tileSize - cameraX, y * tileSize, tileSize, tileSize);
+    }
+  }
+
+  // Coins
+  coins.forEach(c => {
+    if (c.collected) return;
+    ctx.fillStyle = '#FFD700';
+    ctx.beginPath();
+    ctx.arc(c.x - cameraX + 8, c.y + 8, 8, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Goal flag
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(goalX - cameraX, tileSize * 4, 4, tileSize * 10);
+  ctx.fillStyle = '#0f0';
+  ctx.fillRect(goalX - cameraX, tileSize * 4, 20, 20);
+
+  // Enemies
+  enemies.forEach(enemy => {
+    if (!enemy.alive) return;
+    ctx.fillStyle = '#665533';
+    ctx.fillRect(enemy.x - cameraX, enemy.y, enemy.w, enemy.h);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(enemy.x - cameraX + 6, enemy.y + 8, 6, 6);
+    ctx.fillRect(enemy.x - cameraX + enemy.w - 12, enemy.y + 8, 6, 6);
+  });
+
+  // Player
+  const px = player.x - cameraX;
+  const py = player.y;
+  ctx.fillStyle = '#ff0000';
+  ctx.fillRect(px, py, player.w, player.h / 2);
+  ctx.fillStyle = '#0000ff';
+  ctx.fillRect(px, py + player.h / 2, player.w, player.h / 2);
+
+  // HUD
+  ctx.fillStyle = '#000';
+  ctx.font = '20px sans-serif';
+  ctx.fillText('Score: ' + score, 10, 20);
+
+  if (won) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff';
+    ctx.font = '48px sans-serif';
+    ctx.fillText('YOU WIN!', canvas.width / 2 - 120, canvas.height / 2);
+  }
+}
+
+// Animation loop
+let last = 0;
+function loop(timestamp) {
+  const dt = (timestamp - last) / 1000;
+  last = timestamp;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
